@@ -41,6 +41,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifdef TORRENT_WINDOWS
 // because openssl includes winsock.h, we must include winsock2.h first
 #include <winsock2.h>
+#undef s_addr // see https://stackoverflow.com/a/21751212
 #endif
 
 #include <openssl/ssl.h>

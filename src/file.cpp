@@ -364,6 +364,13 @@ namespace libtorrent
 		// convert to seconds
 		return time_t(ft / 10000000 - posix_time_offset);
 	}
+
+	time_t file_time_to_posix(LARGE_INTEGER f)
+	{
+		FILETIME ft = {f.LowPart,f.HighPart};
+		return file_time_to_posix(ft);
+	}
+
 #endif
 
 	void stat_file(std::string const& inf, file_status* s
@@ -391,8 +398,16 @@ namespace libtorrent
 #endif
 
 		// in order to open a directory, we need the FILE_FLAG_BACKUP_SEMANTICS
+#if defined TORRENT_WINRT
+		std::wstring f2 = convert_to_wstring(p);
+		CREATEFILE2_EXTENDED_PARAMETERS params;
+		params.dwFileFlags = FILE_FLAG_BACKUP_SEMANTICS;
+		HANDLE h = CreateFile2(f2.c_str(), 0, FILE_SHARE_DELETE | FILE_SHARE_READ
+			| FILE_SHARE_WRITE, OPEN_EXISTING, &params);
+#else
 		HANDLE h = CreateFile_(f.c_str(), 0, FILE_SHARE_DELETE | FILE_SHARE_READ
 			| FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+#endif
 
 		if (h == INVALID_HANDLE_VALUE)
 		{
@@ -401,8 +416,8 @@ namespace libtorrent
 			return;
 		}
 
-		BY_HANDLE_FILE_INFORMATION data;
-		if (!GetFileInformationByHandle(h, &data))
+		FILE_BASIC_INFO data;
+		if (!GetFileInformationByHandleEx(h, FileBasicInfo, &data, sizeof(data)))
 		{
 			ec.assign(GetLastError(), system_category());
 			TORRENT_ASSERT(ec);
@@ -410,15 +425,26 @@ namespace libtorrent
 			return;
 		}
 
-		s->file_size = (boost::uint64_t(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
-		s->ctime = file_time_to_posix(data.ftCreationTime);
-		s->atime = file_time_to_posix(data.ftLastAccessTime);
-		s->mtime = file_time_to_posix(data.ftLastWriteTime);
+		s->ctime = file_time_to_posix(data.CreationTime);
+		s->atime = file_time_to_posix(data.LastAccessTime);
+		s->mtime = file_time_to_posix(data.LastWriteTime);
 
-		s->mode = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		s->mode = (data.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			? file_status::directory
-			: (data.dwFileAttributes & FILE_ATTRIBUTE_DEVICE)
+			: (data.FileAttributes & FILE_ATTRIBUTE_DEVICE)
 			? file_status::character_special : file_status::regular_file;
+
+		FILE_STANDARD_INFO data2;
+		if (!GetFileInformationByHandleEx(h, FileStandardInfo, &data2, sizeof(data2)))
+		{
+			ec.assign(GetLastError(), system_category());
+			TORRENT_ASSERT(ec);
+			CloseHandle(h);
+			return;
+		}
+
+		s->file_size = data2.EndOfFile.QuadPart;
+
 		CloseHandle(h);
 #else
 
@@ -516,6 +542,9 @@ namespace libtorrent
 	void hard_link(std::string const& file, std::string const& link
 		, error_code& ec)
 	{
+// seems to be no support for hard or symbolic link apis under uwp
+#if !defined TORRENT_WINRT
+
 #ifdef TORRENT_WINDOWS
 
 #if TORRENT_USE_WSTRING
@@ -574,6 +603,7 @@ namespace libtorrent
 
 		// fall back to making a copy
 
+#endif
 #endif
 
 		// if we get here, we should copy the file
@@ -1448,9 +1478,20 @@ namespace libtorrent
 			| FILE_FLAG_OVERLAPPED
 			| ((mode & no_cache) ? FILE_FLAG_WRITE_THROUGH : 0);
 
+#if defined TORRENT_WINRT
+		std::wstring file_path2 = convert_to_wstring(p);
+
+		CREATEFILE2_EXTENDED_PARAMETERS params;
+		params.dwFileFlags = flags;
+
+		handle_type handle = CreateFile2(file_path2.c_str(), m.rw_mode
+			, (mode & lock_file) ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE
+			, m.create_mode, &params);
+#else
 		handle_type handle = CreateFile_(file_path.c_str(), m.rw_mode
 			, (mode & lock_file) ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE
 			, 0, m.create_mode, flags, 0);
+#endif
 
 		if (handle == INVALID_HANDLE_VALUE)
 		{

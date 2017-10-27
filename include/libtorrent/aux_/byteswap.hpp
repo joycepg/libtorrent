@@ -44,6 +44,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #ifdef TORRENT_WINDOWS
 #include <winsock2.h>
+#undef s_addr // see https://stackoverflow.com/a/21751212
 #else
 // posix header
 // for ntohl and htonl

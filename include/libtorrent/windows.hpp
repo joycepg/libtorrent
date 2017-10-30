@@ -42,17 +42,22 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#define NOGDI
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <winioctl.h>
 
-// see https://stackoverflow.com/a/21751212
+#if defined TORRENT_WINRT
+// boost/asio/detail/socket_types.hpp uses s_addr and s6_addr as variable names
+// these conflict with preprocessor definitions from the windows headers when under UWP
+// see also https://stackoverflow.com/a/21751212
 #undef s_addr
 #undef s6_addr
+#endif
 
 #endif
 

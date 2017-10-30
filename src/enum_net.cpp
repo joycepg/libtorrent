@@ -937,20 +937,20 @@ namespace libtorrent
 // Iphlpapi.h API is desktop only
 #if !defined TORRENT_WINRT
 
-		MIB_IPFORWARD_TABLE2* routes = NULL;
-		int res = GetIpForwardTable2(AF_UNSPEC, &routes);
+		MIB_IPFORWARD_TABLE2* routes2 = NULL;
+		int res = GetIpForwardTable2(AF_UNSPEC, &routes2);
 		if (res == NO_ERROR)
 		{
-			for (int i = 0; i < routes->NumEntries; ++i)
+			for (int i = 0; i < routes2->NumEntries; ++i)
 			{
 				ip_route r;
-				r.gateway = sockaddr_to_address((const sockaddr*)&routes->Table[i].NextHop);
+				r.gateway = sockaddr_to_address((const sockaddr*)&routes2->Table[i].NextHop);
 				r.destination = sockaddr_to_address(
-					(const sockaddr*)&routes->Table[i].DestinationPrefix.Prefix);
-				r.netmask = build_netmask(routes->Table[i].SitePrefixLength
-					, routes->Table[i].DestinationPrefix.Prefix.si_family);
+					(const sockaddr*)&routes2->Table[i].DestinationPrefix.Prefix);
+				r.netmask = build_netmask(routes2->Table[i].SitePrefixLength
+					, routes2->Table[i].DestinationPrefix.Prefix.si_family);
 				MIB_IFROW ifentry;
-				ifentry.dwIndex = routes->Table[i].InterfaceIndex;
+				ifentry.dwIndex = routes2->Table[i].InterfaceIndex;
 				if (GetIfEntry(&ifentry) == NO_ERROR)
 				{
 					wcstombs(r.name, ifentry.wszName, sizeof(r.name));
@@ -959,7 +959,7 @@ namespace libtorrent
 				}
 			}
 		}
-		if (routes) FreeMibTable(routes);
+		if (routes2) FreeMibTable(routes2);
 		return ret;
 
 		MIB_IPFORWARDTABLE* routes = NULL;

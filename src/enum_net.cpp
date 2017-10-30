@@ -59,10 +59,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #if TORRENT_USE_GETIPFORWARDTABLE || TORRENT_USE_GETADAPTERSADDRESSES
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
+#include "libtorrent/windows.hpp"
 #include <iphlpapi.h>
 #endif
 
@@ -573,67 +570,44 @@ namespace libtorrent
 
 #elif TORRENT_USE_GETADAPTERSADDRESSES
 
-#if _WIN32_WINNT >= 0x0501
-		// Load Iphlpapi library
-		HMODULE iphlp = LoadLibraryA("Iphlpapi.dll");
-		if (iphlp)
+		ULONG buf_size = 10000;
+		std::vector<char> buffer(buf_size);
+		PIP_ADAPTER_ADDRESSES adapter_addresses
+			= reinterpret_cast<IP_ADAPTER_ADDRESSES*>(&buffer[0]);
+
+		DWORD r = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER
+			| GAA_FLAG_SKIP_ANYCAST, NULL, adapter_addresses, &buf_size);
+		if (r == ERROR_BUFFER_OVERFLOW)
 		{
-			// Get GetAdaptersAddresses() pointer
-			typedef ULONG (WINAPI *GetAdaptersAddresses_t)(ULONG,ULONG,PVOID,PIP_ADAPTER_ADDRESSES,PULONG);
-			GetAdaptersAddresses_t GetAdaptersAddresses = (GetAdaptersAddresses_t)GetProcAddress(
-				iphlp, "GetAdaptersAddresses");
-
-			if (GetAdaptersAddresses == NULL)
-			{
-				FreeLibrary(iphlp);
-				ec = error_code(boost::system::errc::not_supported, generic_category());
-				return std::vector<ip_interface>();
-			}
-
-			ULONG buf_size = 10000;
-			std::vector<char> buffer(buf_size);
-			PIP_ADAPTER_ADDRESSES adapter_addresses
-				= reinterpret_cast<IP_ADAPTER_ADDRESSES*>(&buffer[0]);
-
-			DWORD r = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER
+			buffer.resize(buf_size);
+			adapter_addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(&buffer[0]);
+			r = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER
 				| GAA_FLAG_SKIP_ANYCAST, NULL, adapter_addresses, &buf_size);
-			if (r == ERROR_BUFFER_OVERFLOW)
-			{
-				buffer.resize(buf_size);
-				adapter_addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(&buffer[0]);
-				r = GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER
-					| GAA_FLAG_SKIP_ANYCAST, NULL, adapter_addresses, &buf_size);
-			}
-			if (r != NO_ERROR)
-			{
-				FreeLibrary(iphlp);
-				ec = error_code(WSAGetLastError(), system_category());
-				return std::vector<ip_interface>();
-			}
-
-			for (PIP_ADAPTER_ADDRESSES adapter = adapter_addresses;
-				adapter != 0; adapter = adapter->Next)
-			{
-				ip_interface r;
-				strncpy(r.name, adapter->AdapterName, sizeof(r.name));
-				r.name[sizeof(r.name)-1] = 0;
-				r.mtu = adapter->Mtu;
-				IP_ADAPTER_UNICAST_ADDRESS* unicast = adapter->FirstUnicastAddress;
-				while (unicast)
-				{
-					r.interface_address = sockaddr_to_address(unicast->Address.lpSockaddr);
-
-					ret.push_back(r);
-
-					unicast = unicast->Next;
-				}
-			}
-
-			// Free memory
-			FreeLibrary(iphlp);
-			return ret;
 		}
-#endif
+		if (r != NO_ERROR)
+		{
+			ec = error_code(WSAGetLastError(), system_category());
+			return std::vector<ip_interface>();
+		}
+
+		for (PIP_ADAPTER_ADDRESSES adapter = adapter_addresses;
+			adapter != 0; adapter = adapter->Next)
+		{
+			ip_interface r;
+			strncpy(r.name, adapter->AdapterName, sizeof(r.name));
+			r.name[sizeof(r.name)-1] = 0;
+			r.mtu = adapter->Mtu;
+			IP_ADAPTER_UNICAST_ADDRESS* unicast = adapter->FirstUnicastAddress;
+			while (unicast)
+			{
+				r.interface_address = sockaddr_to_address(unicast->Address.lpSockaddr);
+
+				ret.push_back(r);
+
+				unicast = unicast->Next;
+			}
+		}
+		return ret;
 
 		SOCKET s = socket(AF_INET, SOCK_DGRAM, 0);
 		if (s == SOCKET_ERROR)
@@ -642,11 +616,11 @@ namespace libtorrent
 			return ret;
 		}
 
-		INTERFACE_INFO buffer[30];
+		INTERFACE_INFO buffer2[30];
 		DWORD size;
 
-		if (WSAIoctl(s, SIO_GET_INTERFACE_LIST, 0, 0, buffer,
-			sizeof(buffer), &size, 0, 0) != 0)
+		if (WSAIoctl(s, SIO_GET_INTERFACE_LIST, 0, 0, buffer2,
+			sizeof(buffer2), &size, 0, 0) != 0)
 		{
 			ec = error_code(WSAGetLastError(), system_category());
 			closesocket(s);
@@ -659,9 +633,9 @@ namespace libtorrent
 		ip_interface iface;
 		for (int i = 0; i < n; ++i)
 		{
-			iface.interface_address = sockaddr_to_address(&buffer[i].iiAddress.Address);
+			iface.interface_address = sockaddr_to_address(&buffer2[i].iiAddress.Address);
 			if (iface.interface_address == address_v4::any()) continue;
-			iface.netmask = sockaddr_to_address(&buffer[i].iiNetmask.Address
+			iface.netmask = sockaddr_to_address(&buffer2[i].iiNetmask.Address
 				, iface.interface_address.is_v4() ? AF_INET : AF_INET6);
 			iface.name[0] = 0;
 			iface.mtu = 1500; // how to get the MTU?
@@ -960,78 +934,38 @@ namespace libtorrent
 		FreeLibrary(iphlp);
 */
 
-		// Load Iphlpapi library
-		HMODULE iphlp = LoadLibraryA("Iphlpapi.dll");
-		if (!iphlp)
-		{
-			ec = boost::asio::error::operation_not_supported;
-			return std::vector<ip_route>();
-		}
+// Iphlpapi.h API is desktop only
+#if !defined TORRENT_WINRT
 
-		typedef DWORD (WINAPI *GetIfEntry_t)(PMIB_IFROW pIfRow);
-		GetIfEntry_t GetIfEntry = (GetIfEntry_t)GetProcAddress(iphlp, "GetIfEntry");
-		if (!GetIfEntry)
+		MIB_IPFORWARD_TABLE2* routes = NULL;
+		int res = GetIpForwardTable2(AF_UNSPEC, &routes);
+		if (res == NO_ERROR)
 		{
-			ec = boost::asio::error::operation_not_supported;
-			return std::vector<ip_route>();
-		}
-
-#if _WIN32_WINNT >= 0x0600
-		typedef DWORD (WINAPI *GetIpForwardTable2_t)(
-			ADDRESS_FAMILY, PMIB_IPFORWARD_TABLE2*);
-		typedef void (WINAPI *FreeMibTable_t)(PVOID Memory);
-
-		GetIpForwardTable2_t GetIpForwardTable2 = (GetIpForwardTable2_t)GetProcAddress(
-			iphlp, "GetIpForwardTable2");
-		FreeMibTable_t FreeMibTable = (FreeMibTable_t)GetProcAddress(
-			iphlp, "FreeMibTable");
-		if (GetIpForwardTable2 && FreeMibTable)
-		{
-			MIB_IPFORWARD_TABLE2* routes = NULL;
-			int res = GetIpForwardTable2(AF_UNSPEC, &routes);
-			if (res == NO_ERROR)
+			for (int i = 0; i < routes->NumEntries; ++i)
 			{
-				for (int i = 0; i < routes->NumEntries; ++i)
+				ip_route r;
+				r.gateway = sockaddr_to_address((const sockaddr*)&routes->Table[i].NextHop);
+				r.destination = sockaddr_to_address(
+					(const sockaddr*)&routes->Table[i].DestinationPrefix.Prefix);
+				r.netmask = build_netmask(routes->Table[i].SitePrefixLength
+					, routes->Table[i].DestinationPrefix.Prefix.si_family);
+				MIB_IFROW ifentry;
+				ifentry.dwIndex = routes->Table[i].InterfaceIndex;
+				if (GetIfEntry(&ifentry) == NO_ERROR)
 				{
-					ip_route r;
-					r.gateway = sockaddr_to_address((const sockaddr*)&routes->Table[i].NextHop);
-					r.destination = sockaddr_to_address(
-						(const sockaddr*)&routes->Table[i].DestinationPrefix.Prefix);
-					r.netmask = build_netmask(routes->Table[i].SitePrefixLength
-						, routes->Table[i].DestinationPrefix.Prefix.si_family);
-					MIB_IFROW ifentry;
-					ifentry.dwIndex = routes->Table[i].InterfaceIndex;
-					if (GetIfEntry(&ifentry) == NO_ERROR)
-					{
-						wcstombs(r.name, ifentry.wszName, sizeof(r.name));
-						r.mtu = ifentry.dwMtu;
-						ret.push_back(r);
-					}
+					wcstombs(r.name, ifentry.wszName, sizeof(r.name));
+					r.mtu = ifentry.dwMtu;
+					ret.push_back(r);
 				}
 			}
-			if (routes) FreeMibTable(routes);
-			FreeLibrary(iphlp);
-			return ret;
 		}
-#endif
-
-		// Get GetIpForwardTable() pointer
-		typedef DWORD (WINAPI *GetIpForwardTable_t)(PMIB_IPFORWARDTABLE pIpForwardTable,PULONG pdwSize,BOOL bOrder);
-
-		GetIpForwardTable_t GetIpForwardTable = (GetIpForwardTable_t)GetProcAddress(
-			iphlp, "GetIpForwardTable");
-		if (!GetIpForwardTable)
-		{
-			FreeLibrary(iphlp);
-			ec = boost::asio::error::operation_not_supported;
-			return std::vector<ip_route>();
-		}
+		if (routes) FreeMibTable(routes);
+		return ret;
 
 		MIB_IPFORWARDTABLE* routes = NULL;
 		ULONG out_buf_size = 0;
 		if (GetIpForwardTable(routes, &out_buf_size, FALSE) != ERROR_INSUFFICIENT_BUFFER)
 		{
-			FreeLibrary(iphlp);
 			ec = boost::asio::error::operation_not_supported;
 			return std::vector<ip_route>();
 		}
@@ -1039,7 +973,6 @@ namespace libtorrent
 		routes = (MIB_IPFORWARDTABLE*)malloc(out_buf_size);
 		if (!routes)
 		{
-			FreeLibrary(iphlp);
 			ec = boost::asio::error::no_memory;
 			return std::vector<ip_route>();
 		}
@@ -1066,7 +999,8 @@ namespace libtorrent
 
 		// Free memory
 		free(routes);
-		FreeLibrary(iphlp);
+#endif
+
 #elif TORRENT_USE_NETLINK
 		enum { BUFSIZE = 8192 };
 

@@ -45,6 +45,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <boost/asio/ip/multicast.hpp>
 
 #ifdef TORRENT_WINDOWS
+#include "libtorrent/windows.hpp"
 #include <iphlpapi.h> // for if_nametoindex
 #endif
 
@@ -254,6 +255,7 @@ namespace libtorrent
 			// if_nametoindex was introduced in vista
 #if TORRENT_USE_IPV6 \
 		&& (!defined TORRENT_WINDOWS || _WIN32_WINNT >= 0x0600) \
+		&& !defined TORRENT_WINRT \
 		&& !defined TORRENT_MINGW
 
 			if (i->interface_address.is_v6() &&

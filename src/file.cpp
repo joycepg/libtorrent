@@ -94,12 +94,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #include "libtorrent/utf8.hpp"
+#include "libtorrent/windows.hpp"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#include <winioctl.h>
 #ifndef TORRENT_MINGW
 #include <direct.h> // for _getcwd, _mkdir
 #else
@@ -656,8 +652,14 @@ namespace libtorrent
 		std::string const& f2 = convert_to_native(newf);
 #endif
 
+#if defined TORRENT_WINRT
+		if (CopyFile2(f1.c_str(), f2.c_str(), NULL) == 0)
+			ec.assign(GetLastError(), system_category());
+#else
 		if (CopyFile_(f1.c_str(), f2.c_str(), false) == 0)
 			ec.assign(GetLastError(), system_category());
+#endif
+
 #elif defined __APPLE__ && defined __MACH__ && MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
 		std::string f1 = convert_to_native(inf);
 		std::string f2 = convert_to_native(newf);
@@ -1362,7 +1364,7 @@ namespace libtorrent
 #endif // TORRENT_WINDOWS
 
 
-#ifdef TORRENT_WINDOWS
+#if defined TORRENT_WINDOWS && !defined TORRENT_WINRT
 	bool get_manage_volume_privs();
 
 	// this needs to be run before CreateFile
@@ -1502,6 +1504,9 @@ namespace libtorrent
 
 		m_file_handle = handle;
 
+#if defined TORRENT_WINRT
+		// no sparse file support on uwp or winrt
+#else
 		// try to make the file sparse if supported
 		// only set this flag if the file is opened for writing
 		if ((mode & file::sparse) && (mode & rw_mask) != read_only)
@@ -1514,6 +1519,8 @@ namespace libtorrent
 			if (ret == FALSE && GetLastError() == ERROR_IO_PENDING)
 				ol.wait(native_handle(), error);
 		}
+#endif
+
 #else // TORRENT_WINDOWS
 
 		// rely on default umask to filter x and w permissions
@@ -1626,6 +1633,10 @@ namespace libtorrent
 	// sparse, i.e. not allocated.
 	bool is_sparse(HANDLE file)
 	{
+#if defined TORRENT_WINRT
+		// no sparse file support on uwp or winrt
+		return false;
+#else
 		LARGE_INTEGER file_size;
 		if (!GetFileSizeEx(file, &file_size))
 			return false;
@@ -1668,6 +1679,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		}
 
 		return (in.Length.QuadPart != out[0].Length.QuadPart);
+#endif
 	}
 #endif
 
@@ -1681,6 +1693,9 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 
 #ifdef TORRENT_WINDOWS
 
+#if defined TORRENT_WINRT
+		// no sparse file support on uwp or winrt
+#else
 		// if this file is open for writing, has the sparse
 		// flag set, but there are no sparse regions, unset
 		// the flag
@@ -1708,6 +1723,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 				ol.wait(native_handle(), ec);
 			}
 		}
+#endif
 
 		CloseHandle(native_handle());
 #else
@@ -2004,7 +2020,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		return ret;
 	}
 
-#ifdef TORRENT_WINDOWS
+#if defined TORRENT_WINDOWS && !defined TORRENT_WINRT
 	bool get_manage_volume_privs()
 	{
 		typedef BOOL (WINAPI *OpenProcessToken_t)(
@@ -2109,7 +2125,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		TORRENT_ASSERT(is_open());
 		TORRENT_ASSERT(s >= 0);
 
-#ifdef TORRENT_WINDOWS
+#if defined TORRENT_WINDOWS 
 
 		LARGE_INTEGER offs;
 		LARGE_INTEGER cur_size;
@@ -2136,45 +2152,20 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 			}
 		}
 
-#if _WIN32_WINNT >= 0x0600 // only if Windows Vista or newer
+#if !defined TORRENT_WINRT
 		if ((m_open_mode & sparse) == 0)
 		{
-			typedef DWORD (WINAPI *GetFileInformationByHandleEx_t)(HANDLE hFile
-				, FILE_INFO_BY_HANDLE_CLASS FileInformationClass
-				, LPVOID lpFileInformation
-				, DWORD dwBufferSize);
-
-			static GetFileInformationByHandleEx_t GetFileInformationByHandleEx_ = NULL;
-
-			static bool failed_kernel32 = false;
-
-			if ((GetFileInformationByHandleEx_ == NULL) && !failed_kernel32)
-			{
-				HMODULE kernel32 = LoadLibraryA("kernel32.dll");
-				if (kernel32)
-				{
-					GetFileInformationByHandleEx_ = (GetFileInformationByHandleEx_t)GetProcAddress(kernel32, "GetFileInformationByHandleEx");
-				}
-				else
-				{
-					failed_kernel32 = true;
-				}
-			}
-
 			offs.QuadPart = 0;
-			if (GetFileInformationByHandleEx_)
+			// only allocate the space if the file
+			// is not fully allocated
+			FILE_STANDARD_INFO inf;
+			if (GetFileInformationByHandleEx(native_handle()
+				, FileStandardInfo, &inf, sizeof(inf)) == FALSE)
 			{
-				// only allocate the space if the file
-				// is not fully allocated
-				FILE_STANDARD_INFO inf;
-				if (GetFileInformationByHandleEx_(native_handle()
-					, FileStandardInfo, &inf, sizeof(inf)) == FALSE)
-				{
-					ec.assign(GetLastError(), system_category());
-					if (ec) return false;
-				}
-				offs = inf.AllocationSize;
+				ec.assign(GetLastError(), system_category());
+				if (ec) return false;
 			}
+			offs = inf.AllocationSize;
 
 			if (offs.QuadPart != s)
 			{
@@ -2184,7 +2175,8 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 				set_file_valid_data(m_file_handle, s);
 			}
 		}
-#endif // if Windows Vista
+#endif
+
 #else // NON-WINDOWS
 		struct stat st;
 		if (fstat(native_handle(), &st) != 0)
@@ -2291,7 +2283,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 
 	boost::int64_t file::sparse_end(boost::int64_t start) const
 	{
-#ifdef TORRENT_WINDOWS
+#if defined TORRENT_WINDOWS && !defined TORRENT_WINRT
 
 #ifdef TORRENT_MINGW
 typedef struct _FILE_ALLOCATED_RANGE_BUFFER {

@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2015, Arvid Norberg
+Copyright (c) 2009-2017, Arvid Norberg
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -30,66 +30,30 @@ POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef TORRENT_OPENSSL_HPP_INCLUDED
-#define TORRENT_OPENSSL_HPP_INCLUDED
+#ifndef TORRENT_WINDOWS_HPP_INCLUDED
+#define TORRENT_WINDOWS_HPP_INCLUDED
 
-#ifdef TORRENT_USE_OPENSSL
+#include <boost/version.hpp>
+#include "libtorrent/config.hpp"
 
-// all of OpenSSL causes warnings, so we just have to disable them
-#include "libtorrent/aux_/disable_warnings_push.hpp"
+#if defined TORRENT_WINDOWS || defined TORRENT_CYGWIN
 
-#ifdef TORRENT_WINDOWS
-// because openssl includes winsock.h, we must include winsock2.h first
-#include "libtorrent/windows.hpp"
+// winsock2 pulls in windows.h, and it defines things like max() unless told not to
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#define NOGDI
+#define NOMINMAX
+#include <windows.h>
+
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <winioctl.h>
+
+// see https://stackoverflow.com/a/21751212
+#undef s_addr
+#undef s6_addr
+
 #endif
 
-#include <openssl/ssl.h>
-#include <openssl/safestack.h> // for sk_GENERAL_NAME_value
-#include <openssl/x509v3.h> // for GENERAL_NAME
-
-namespace libtorrent {
-namespace aux {
-
-inline void openssl_set_tlsext_hostname(SSL* s, char const* name)
-{
-#if OPENSSL_VERSION_NUMBER >= 0x90812f
-	SSL_set_tlsext_host_name(s, name);
 #endif
-}
-
-#if BOOST_VERSION >= 104700
-#if OPENSSL_VERSION_NUMBER >= 0x90812f
-
-inline void openssl_set_tlsext_servername_callback(SSL_CTX* ctx
-	, int (*servername_callback)(SSL*, int*, void*))
-{
-	SSL_CTX_set_tlsext_servername_callback(ctx, servername_callback);
-}
-
-inline void openssl_set_tlsext_servername_arg(SSL_CTX* ctx, void* userdata)
-{
-	SSL_CTX_set_tlsext_servername_arg(ctx, userdata);
-}
-
-inline int openssl_num_general_names(GENERAL_NAMES* gens)
-{
-	return sk_GENERAL_NAME_num(gens);
-}
-
-inline GENERAL_NAME* openssl_general_name_value(GENERAL_NAMES* gens, int i)
-{
-	return sk_GENERAL_NAME_value(gens, i);
-}
-
-#endif // OPENSSL_VERSION_NUMBER
-#endif // BOOST_VERSION
-
-}
-}
-
-#include "libtorrent/aux_/disable_warnings_pop.hpp"
-
-#endif // TORRENT_USE_OPENSSL
-
-#endif // TORRENT_OPENSSL_HPP_INCLUDED
-

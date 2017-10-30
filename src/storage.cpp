@@ -511,7 +511,7 @@ namespace libtorrent
 	{
 		m_stat_cache.init(files().num_files());
 
-#ifdef TORRENT_WINDOWS
+#if defined TORRENT_WINDOWS && !defined TORRENT_WINRT
 		// don't do full file allocations on network drives
 #if TORRENT_USE_WSTRING
 		std::wstring f = convert_to_wstring(m_save_path);

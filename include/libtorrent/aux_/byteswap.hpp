@@ -43,8 +43,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <boost/cstdint.hpp>
 
 #ifdef TORRENT_WINDOWS
-#include <winsock2.h>
-#undef s_addr // see https://stackoverflow.com/a/21751212
+#include "libtorrent/windows.hpp"
 #else
 // posix header
 // for ntohl and htonl

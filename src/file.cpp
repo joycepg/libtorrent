@@ -396,8 +396,11 @@ namespace libtorrent
 		// in order to open a directory, we need the FILE_FLAG_BACKUP_SEMANTICS
 #if defined TORRENT_WINRT
 		std::wstring f2 = convert_to_wstring(p);
-		CREATEFILE2_EXTENDED_PARAMETERS params;
+		
+		CREATEFILE2_EXTENDED_PARAMETERS params = {};
+		params.dwSize = sizeof(CREATEFILE2_EXTENDED_PARAMETERS);
 		params.dwFileFlags = FILE_FLAG_BACKUP_SEMANTICS;
+		
 		HANDLE h = CreateFile2(f2.c_str(), 0, FILE_SHARE_DELETE | FILE_SHARE_READ
 			| FILE_SHARE_WRITE, OPEN_EXISTING, &params);
 #else
@@ -1471,6 +1474,21 @@ namespace libtorrent
 		open_mode_t const& m = mode_array[mode & rw_mask];
 		DWORD a = attrib_array[(mode & attribute_mask) >> 12];
 
+#if defined TORRENT_WINRT
+		DWORD flags = ((mode & random_access) ? 0 : FILE_FLAG_SEQUENTIAL_SCAN)
+			| FILE_FLAG_OVERLAPPED
+			| ((mode & no_cache) ? FILE_FLAG_WRITE_THROUGH : 0);
+
+		std::wstring file_path2 = convert_to_wstring(p);
+
+		CREATEFILE2_EXTENDED_PARAMETERS params = {};
+		params.dwSize = sizeof(CREATEFILE2_EXTENDED_PARAMETERS);
+		params.dwFileFlags = flags;
+
+		handle_type handle = CreateFile2(file_path2.c_str(), m.rw_mode
+			, (mode & lock_file) ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE
+			, m.create_mode, &params);
+#else
 		// one might think it's a good idea to pass in FILE_FLAG_RANDOM_ACCESS. It
 		// turns out that it isn't. That flag will break your operating system:
 		// http://support.microsoft.com/kb/2549369
@@ -1480,16 +1498,6 @@ namespace libtorrent
 			| FILE_FLAG_OVERLAPPED
 			| ((mode & no_cache) ? FILE_FLAG_WRITE_THROUGH : 0);
 
-#if defined TORRENT_WINRT
-		std::wstring file_path2 = convert_to_wstring(p);
-
-		CREATEFILE2_EXTENDED_PARAMETERS params;
-		params.dwFileFlags = flags;
-
-		handle_type handle = CreateFile2(file_path2.c_str(), m.rw_mode
-			, (mode & lock_file) ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE
-			, m.create_mode, &params);
-#else
 		handle_type handle = CreateFile_(file_path.c_str(), m.rw_mode
 			, (mode & lock_file) ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE
 			, 0, m.create_mode, flags, 0);
